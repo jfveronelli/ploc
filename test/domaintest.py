@@ -1,5 +1,6 @@
 # coding:utf-8
 from crossknight.ploc.domain import Note
+from crossknight.ploc.domain import NoteType
 from datetime import datetime
 from unittest import TestCase
 
@@ -8,7 +9,8 @@ class ModuleTest(TestCase):
     FILENAME_ENCRYPTED = "01d80488a18e42e6a2767b140d45ddb9.md"
     FILENAME_PLAIN = "01d80488a18e42e6a2767b140d45ddc9.md"
 
-    def __read_file(self, filename):
+    @classmethod
+    def __read_file(cls, filename):
         with open("resources/" + filename, "r") as file:
             return file.read()
 
@@ -26,6 +28,7 @@ class ModuleTest(TestCase):
         self.assertEqual(1, len(note.tags))
         self.assertEqual(str, type(note.tags[0]))
         self.assertEqual("!today", note.tags[0])
+        self.assertEqual(NoteType.BASIC, note.type)
         self.assertEqual(str, type(note.crypto.salt))
         self.assertEqual("8306ef737874bd0cf8e2f2b5ff7a2ec5", note.crypto.salt)
         self.assertEqual(str, type(note.crypto.iv))

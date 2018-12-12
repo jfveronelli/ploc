@@ -12,6 +12,7 @@ from pyaes import AESModeOfOperationCBC
 from pyaes import Decrypter
 from pyaes import Encrypter
 from re import compile
+# noinspection PyPackageRequirements
 from secrets import token_bytes
 from uuid import uuid4
 from yaml import dump_all
@@ -31,6 +32,13 @@ def _pass2key(password, salt_b):
     return argon2(pass_b, salt_b, 10, 1024, 1, tag_length=32, type_code=ARGON2D)
 
 
+def ulist(iterable):
+    items = OrderedDict()
+    for item in iterable:
+        items[item] = None
+    return list(items.keys())
+
+
 class _OrderedSafeDumper(SafeDumper):
     def increase_indent(self, flow=False, indentless=False):
         return super(_OrderedSafeDumper, self).increase_indent(flow, False)
@@ -42,7 +50,7 @@ class _OrderedSafeDumper(SafeDumper):
 _OrderedSafeDumper.add_representer(OrderedDict, _OrderedSafeDumper.ordered_dict_representer)
 
 
-class _NoteCrypto(object):
+class NoteCrypto(object):
     def __init__(self, salt, iv, hmac):
         self.salt = salt
         self.iv = iv
@@ -79,20 +87,22 @@ class Note(object):
     @classmethod
     def from_str(cls, filename, date, txt):
         if len(filename) < 32 or not _is_uuid(filename[:32]) or not txt or not txt.startswith(cls.__HDR_START)\
-                or txt.index(cls.__HDR_END) < 0:
+                or txt.find(cls.__HDR_END) < 0:
             return None
 
-        endPos = txt.index(cls.__HDR_END)
+        endPos = txt.find(cls.__HDR_END)
         noteDict = safe_load(txt[len(cls.__HDR_START):endPos])
 
         note = Note()
         note.uuid = filename[:32]
         note.date = date
         note.title = noteDict["title"]
-        note.tags = noteDict["tags"]
+        note.tags = ulist(noteDict["tags"])
+        if "type" in noteDict:
+            note.type = NoteType(noteDict["type"])
         if "crypto" in noteDict:
             cryptoDict = noteDict["crypto"]
-            note.crypto = _NoteCrypto(cryptoDict["salt"], cryptoDict["iv"], cryptoDict["hmac"])
+            note.crypto = NoteCrypto(cryptoDict["salt"], cryptoDict["iv"], cryptoDict["hmac"])
         note.text = txt[endPos + len(cls.__HDR_END):]
         return note
 
@@ -112,7 +122,7 @@ class Note(object):
         hmac.update(cipher)
 
         cipher = standard_b64encode(cipher).decode("ascii")
-        self.crypto = _NoteCrypto(hexlify(salt).decode("ascii"), hexlify(iv).decode("ascii"), hmac.hexdigest())
+        self.crypto = NoteCrypto(hexlify(salt).decode("ascii"), hexlify(iv).decode("ascii"), hmac.hexdigest())
         self.text = cipher
         return True
 
