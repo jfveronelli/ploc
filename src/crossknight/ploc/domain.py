@@ -56,9 +56,42 @@ class NoteCrypto(object):
         self.iv = iv
         self.hmac = hmac
 
+    def __eq__(self, that):
+        if not isinstance(that, NoteCrypto):
+            return False
+        return self.salt == that.salt and self.iv == that.iv and self.hmac == that.hmac
+
 
 class NoteType(Enum):
     BASIC = "basic"
+
+
+class NoteStatus(object):
+    def __init__(self, uuid, date, active):
+        self.uuid = uuid
+        self.date = date
+        self.active = active
+
+    def __eq__(self, that):
+        if not isinstance(that, NoteStatus):
+            return False
+        return self.uuid == that.uuid and self.date == that.date and self.active == that.active
+
+
+class NoteSummary(object):
+    def __init__(self, uuid, date, title, tags, ntype, crypto):
+        self.uuid = uuid
+        self.date = date
+        self.title = title
+        self.tags = tags
+        self.type = ntype
+        self.crypto = crypto
+
+    def __eq__(self, that):
+        if not isinstance(that, NoteSummary):
+            return False
+        return self.uuid == that.uuid and self.date == that.date and self.title == that.title and\
+               self.tags == that.tags and self.type == that.type and self.crypto == that.crypto
 
 
 class Note(object):
@@ -83,6 +116,13 @@ class Note(object):
             noteDict["crypto"] = cryptoDict
         yaml = dump_all([noteDict], default_flow_style=False, Dumper=_OrderedSafeDumper).strip()
         return self.__HDR_START + yaml + self.__HDR_END + self.text
+
+    def __eq__(self, that):
+        if not isinstance(that, Note):
+            return False
+        return self.uuid == that.uuid and self.date == that.date and self.title == that.title and\
+               self.tags == that.tags and self.type == that.type and self.crypto == that.crypto and\
+               self.text == that.text
 
     @classmethod
     def from_str(cls, filename, date, txt):

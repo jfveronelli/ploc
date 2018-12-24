@@ -1,6 +1,8 @@
 # coding:utf-8
 from crossknight.ploc.domain import Note
 from crossknight.ploc.domain import NoteCrypto
+from crossknight.ploc.domain import NoteStatus
+from crossknight.ploc.domain import NoteSummary
 from crossknight.ploc.domain import NoteType
 from crossknight.ploc.domain import ulist
 from datetime import datetime
@@ -67,7 +69,7 @@ class Provider(object):
         _db.create_tables([_Note, _NoteTag, _RemovedNote])
 
     @classmethod
-    def _note2models(cls, note):
+    def __note2models(cls, note):
         tags = None if not note.tags else "\n".join(note.tags)
         crypto = None if not note.crypto else note.crypto.salt + note.crypto.iv + note.crypto.hmac
         noteModel = _Note(uuid=note.uuid, date=note.date, title=note.title, tags=tags, type=note.type.value,
@@ -77,35 +79,73 @@ class Provider(object):
             tagModels.append(_NoteTag(uuid=note.uuid, name=tag))
         return noteModel, tagModels
 
+    @classmethod
+    def __model2note(cls, model):
+        note = Note()
+        note.uuid = model.uuid
+        note.date = model.date
+        note.title = model.title
+        note.tags = cls.__unpack_tags(model.tags)
+        note.type = NoteType(model.type)
+        note.crypto = cls.__unpack_crypto(model.crypto)
+        note.text = model.text
+        return note
+
+    @classmethod
+    def __unpack_tags(cls, text):
+        return text.split("\n") if text else []
+
+    @classmethod
+    def __unpack_crypto(cls, text):
+        return NoteCrypto(text[:32], text[32:64], text[64:]) if text else None
+
+    @classmethod
+    def list(cls, tags=None, ntype=None, text=None):
+        query = _Note.select(_Note.uuid, _Note.date, _Note.title, _Note.tags, _Note.type, _Note.crypto)
+        andFilters = []
+        if tags:
+            subquery = _NoteTag.select(_NoteTag.uuid).where(_NoteTag.name.in_(tags)).distinct()
+            andFilters.append(_Note.uuid.in_(subquery))
+        if ntype:
+            andFilters.append(_Note.type == ntype.value)
+        if text:
+            andFilters.append(_Note.title.contains(text) | _Note.tags.contains(text) |
+                              (_Note.crypto.is_null() & _Note.text.contains(text)))
+        if andFilters:
+            query = query.where(*tuple(andFilters))
+
+        summaries = []
+        for (uuid, date, title, tags, ntype, crypto) in query.tuples():
+            tags = cls.__unpack_tags(tags)
+            crypto = cls.__unpack_crypto(crypto)
+            summaries.append(NoteSummary(uuid, date, title, tags, NoteType(ntype), crypto))
+        summaries.sort(key=lambda s: _comparable(s.title))
+        return summaries
+    '''
+    if (params.tags && params.tags.length > 0) {
+      query = query.where("tags").anyOf(params.tags).distinct();
+    '''
+
+
+
     # noinspection PyMethodMayBeStatic
     def tags(self):
         return sorted(map(lambda t: t[0], _NoteTag.select(_NoteTag.name).distinct().tuples()), key=_comparable)
 
     # noinspection PyMethodMayBeStatic
     def get(self, uuid):
-        entity = _Note.get_by_id(uuid)
-        note = Note()
-        note.uuid = entity.uuid
-        note.date = entity.date
-        note.title = entity.title
-        note.type = NoteType(entity.type)
-        note.text = entity.text
-        if entity.tags:
-            note.tags = entity.tags.split("\n")
-        if entity.crypto:
-            note.crypto = NoteCrypto(entity.crypto[:32], entity.crypto[32:64], entity.crypto[64:])
-        return note
+        return self.__model2note(_Note.get_by_id(uuid))
 
     @_db.atomic()
     def add(self, note):
-        noteModel, tagModels = self._note2models(note)
+        noteModel, tagModels = self.__note2models(note)
         noteModel.save(force_insert=True)
         for model in tagModels:
             model.save(force_insert=True)
 
     @_db.atomic()
     def update(self, note):
-        noteModel, tagModels = self._note2models(note)
+        noteModel, tagModels = self.__note2models(note)
         noteModel.save()
         _NoteTag.delete().where(_NoteTag.uuid == note.uuid).execute()
         for model in tagModels:
@@ -137,6 +177,21 @@ class Provider(object):
                     for uuid in uuids:
                         tags.append({"uuid": uuid, "name": tag})
                 _NoteTag.insert_many(tags).on_conflict_ignore().execute()
+
+    # noinspection PyMethodMayBeStatic
+    def state(self):
+        result = {}
+        for (uuid, date) in _RemovedNote.select(_RemovedNote.uuid, _RemovedNote.date).tuples():
+            result[uuid] = NoteStatus(uuid, date, False)
+        for (uuid, date) in _Note.select(_Note.uuid, _Note.date).tuples():
+            result[uuid] = NoteStatus(uuid, date, True)
+        return result
+
+    @_db.atomic()
+    def wipe(self):
+        _Note.delete().execute()
+        _NoteTag.delete().execute()
+        _RemovedNote.delete().execute()
 
     @classmethod
     def close(cls):
