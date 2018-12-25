@@ -1,4 +1,5 @@
 # coding:utf-8
+from crossknight.ploc.domain import is_uuid
 from crossknight.ploc.domain import Note
 from crossknight.ploc.domain import NoteCrypto
 from crossknight.ploc.domain import NoteStatus
@@ -6,13 +7,18 @@ from crossknight.ploc.domain import NoteSummary
 from crossknight.ploc.domain import NoteType
 from crossknight.ploc.domain import ulist
 from datetime import datetime
+from datetime import timedelta
 from peewee import CharField
 from peewee import DateTimeField
 from peewee import FixedCharField
 from peewee import ForeignKeyField
+from peewee import IntegrityError
 from peewee import Model
 from peewee import SqliteDatabase
 from peewee import TextField
+from zipfile import ZIP_DEFLATED
+from zipfile import ZipFile
+from zipfile import ZipInfo
 
 
 _DB_FILENAME = "ploc.db"
@@ -100,6 +106,17 @@ class Provider(object):
         return NoteCrypto(text[:32], text[32:64], text[64:]) if text else None
 
     @classmethod
+    def __localtimetuple(cls, ndate):
+        local = ndate.astimezone()
+        if round(local.microsecond / 1000000) >= 1:
+            local += timedelta(seconds=1)
+        return local.year, local.month, local.day, local.hour, local.minute, local.second
+
+    @classmethod
+    def __is_note_file(cls, filename):
+        return len(filename) == 35 and filename.endswith(".md") and is_uuid(filename[:32])
+
+    @classmethod
     def list(cls, tags=None, ntype=None, text=None):
         query = _Note.select(_Note.uuid, _Note.date, _Note.title, _Note.tags, _Note.type, _Note.crypto)
         andFilters = []
@@ -115,24 +132,17 @@ class Provider(object):
             query = query.where(*tuple(andFilters))
 
         summaries = []
-        for (uuid, date, title, tags, ntype, crypto) in query.tuples():
+        for (uuid, ndate, title, tags, ntype, crypto) in query.tuples():
             tags = cls.__unpack_tags(tags)
             crypto = cls.__unpack_crypto(crypto)
-            summaries.append(NoteSummary(uuid, date, title, tags, NoteType(ntype), crypto))
+            summaries.append(NoteSummary(uuid, ndate, title, tags, NoteType(ntype), crypto))
         summaries.sort(key=lambda s: _comparable(s.title))
         return summaries
-    '''
-    if (params.tags && params.tags.length > 0) {
-      query = query.where("tags").anyOf(params.tags).distinct();
-    '''
-
-
 
     # noinspection PyMethodMayBeStatic
     def tags(self):
         return sorted(map(lambda t: t[0], _NoteTag.select(_NoteTag.name).distinct().tuples()), key=_comparable)
 
-    # noinspection PyMethodMayBeStatic
     def get(self, uuid):
         return self.__model2note(_Note.get_by_id(uuid))
 
@@ -152,15 +162,15 @@ class Provider(object):
             model.save(force_insert=True)
 
     @_db.atomic()
-    def remove(self, uuid, date=None):
+    def remove(self, uuid, ndate=None):
         _Note.delete().where(_Note.uuid == uuid).execute()
-        _RemovedNote(uuid=uuid, date=date or datetime.now()).save(force_insert=True)
+        _RemovedNote(uuid=uuid, date=ndate or datetime.now()).save(force_insert=True)
 
     @_db.atomic()
     def update_tag(self, tag, newTags=None):
         uuids = [t[0] for t in _NoteTag.select(_NoteTag.uuid).where(_NoteTag.name == tag).distinct().tuples()]
         if uuids:
-            date = datetime.now()
+            ndate = datetime.now()
             for uuid in uuids:
                 tags = _Note.select(_Note.tags).where(_Note.uuid == uuid).tuples().get()[0].split("\n")
                 pos = tags.index(tag)
@@ -169,7 +179,7 @@ class Provider(object):
                     for newTag in reversed(newTags):
                         tags.insert(pos, newTag)
                     tags = ulist(tags)
-                _Note.update(date=date, tags="\n".join(tags)).where(_Note.uuid == uuid).execute()
+                _Note.update(date=ndate, tags="\n".join(tags)).where(_Note.uuid == uuid).execute()
             _NoteTag.delete().where(_NoteTag.name == tag).execute()
             if newTags:
                 tags = []
@@ -178,13 +188,39 @@ class Provider(object):
                         tags.append({"uuid": uuid, "name": tag})
                 _NoteTag.insert_many(tags).on_conflict_ignore().execute()
 
+    def export(self, uuids, filepath):
+        with ZipFile(filepath, "w", ZIP_DEFLATED) as zipped:
+            for uuid in uuids:
+                note = self.get(uuid)
+                fileinfo = ZipInfo(uuid + ".md", self.__localtimetuple(note.date))
+                zipped.writestr(fileinfo, str(note).encode("utf-8"))
+
+    def import_from(self, filepath):
+        imported = 0
+        duplicated = 0
+        corrupted = 0
+        with ZipFile(filepath) as zipped:
+            for fileinfo in filter(lambda i: self.__is_note_file(i.filename), zipped.infolist()):
+                ndate = datetime(*fileinfo.date_time)
+                with zipped.open(fileinfo) as notefile:
+                    note = Note.from_text(fileinfo.filename, ndate, notefile.read())
+                if note:
+                    try:
+                        self.add(note)
+                        imported += 1
+                    except IntegrityError:
+                        duplicated += 1
+                else:
+                    corrupted += 1
+        return imported, duplicated, corrupted
+
     # noinspection PyMethodMayBeStatic
     def state(self):
         result = {}
-        for (uuid, date) in _RemovedNote.select(_RemovedNote.uuid, _RemovedNote.date).tuples():
-            result[uuid] = NoteStatus(uuid, date, False)
-        for (uuid, date) in _Note.select(_Note.uuid, _Note.date).tuples():
-            result[uuid] = NoteStatus(uuid, date, True)
+        for (uuid, ndate) in _RemovedNote.select(_RemovedNote.uuid, _RemovedNote.date).tuples():
+            result[uuid] = NoteStatus(uuid, ndate, False)
+        for (uuid, ndate) in _Note.select(_Note.uuid, _Note.date).tuples():
+            result[uuid] = NoteStatus(uuid, ndate, True)
         return result
 
     @_db.atomic()

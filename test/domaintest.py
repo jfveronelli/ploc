@@ -11,14 +11,13 @@ class ModuleTest(TestCase):
 
     @classmethod
     def __read_file(cls, filename):
-        with open("resources/" + filename, "r") as file:
+        with open("resources/" + filename, "rb") as file:
             return file.read()
 
     def testReadNote(self):
         date = datetime.now()
-        txt = self.__read_file(self.FILENAME_ENCRYPTED)
 
-        note = Note.from_str(self.FILENAME_ENCRYPTED, date, txt)
+        note = Note.from_text(self.FILENAME_ENCRYPTED, date, self.__read_file(self.FILENAME_ENCRYPTED))
 
         self.assertEqual(str, type(note.uuid))
         self.assertEqual("01d80488a18e42e6a2767b140d45ddb9", note.uuid)
@@ -27,7 +26,7 @@ class ModuleTest(TestCase):
         self.assertEqual("Aaaaa", note.title)
         self.assertEqual(1, len(note.tags))
         self.assertEqual(str, type(note.tags[0]))
-        self.assertEqual("!today", note.tags[0])
+        self.assertEqual("!mañana", note.tags[0])
         self.assertEqual(NoteType.BASIC, note.type)
         self.assertEqual(str, type(note.crypto.salt))
         self.assertEqual("8306ef737874bd0cf8e2f2b5ff7a2ec5", note.crypto.salt)
@@ -39,7 +38,7 @@ class ModuleTest(TestCase):
         self.assertEqual("QjyW7OaUyP7M2WR81CH8Eg==", note.text)
 
     def testDecryptNote(self):
-        note = Note.from_str(self.FILENAME_ENCRYPTED, datetime.now(), self.__read_file(self.FILENAME_ENCRYPTED))
+        note = Note.from_text(self.FILENAME_ENCRYPTED, datetime.now(), self.__read_file(self.FILENAME_ENCRYPTED))
 
         result = note.decrypt("hola")
 
@@ -49,7 +48,7 @@ class ModuleTest(TestCase):
         self.assertEqual("Hola mundo!", note.text)
 
     def testEncryptAndDecryptNote(self):
-        note = Note.from_str(self.FILENAME_PLAIN, datetime.now(), self.__read_file(self.FILENAME_PLAIN))
+        note = Note.from_text(self.FILENAME_PLAIN, datetime.now(), self.__read_file(self.FILENAME_PLAIN))
 
         result = note.encrypt("hola")
 
@@ -71,10 +70,10 @@ class ModuleTest(TestCase):
         self.assertEqual("Hola mundo!", note.text)
 
     def testWriteNote(self):
-        txt = self.__read_file(self.FILENAME_ENCRYPTED)
-        note = Note.from_str(self.FILENAME_ENCRYPTED, datetime.now(), txt)
+        txt = self.__read_file(self.FILENAME_ENCRYPTED).decode("utf-8")
+        note = Note.from_text(self.FILENAME_ENCRYPTED, datetime.now(), txt)
 
         result = str(note)
 
-        self.assertEqual(str, type(txt))
+        self.assertEqual(str, type(result))
         self.assertEqual(txt, result)

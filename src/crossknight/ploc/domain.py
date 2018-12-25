@@ -23,13 +23,21 @@ from yaml import SafeDumper
 _UUID = compile(r"^[0-9a-f]{32}\Z")
 
 
-def _is_uuid(name):
-    return bool(_UUID.match(name))
-
-
 def _pass2key(password, salt_b):
     pass_b = bytes(password, "utf-8")
     return argon2(pass_b, salt_b, 10, 1024, 1, tag_length=32, type_code=ARGON2D)
+
+
+def is_uuid(name):
+    return bool(_UUID.match(name))
+
+
+def is_almost_same_date(ndate1, ndate2):
+    if ndate1 is None and ndate2 is None:
+        return True
+    if ndate1 is None or ndate2 is None:
+        return False
+    return abs(ndate1 - ndate2).total_seconds() < 2
 
 
 def ulist(iterable):
@@ -75,7 +83,7 @@ class NoteStatus(object):
     def __eq__(self, that):
         if not isinstance(that, NoteStatus):
             return False
-        return self.uuid == that.uuid and self.date == that.date and self.active == that.active
+        return self.uuid == that.uuid and is_almost_same_date(self.date, that.date) and self.active == that.active
 
 
 class NoteSummary(object):
@@ -90,7 +98,7 @@ class NoteSummary(object):
     def __eq__(self, that):
         if not isinstance(that, NoteSummary):
             return False
-        return self.uuid == that.uuid and self.date == that.date and self.title == that.title and\
+        return self.uuid == that.uuid and is_almost_same_date(self.date, that.date) and self.title == that.title and\
                self.tags == that.tags and self.type == that.type and self.crypto == that.crypto
 
 
@@ -114,24 +122,27 @@ class Note(object):
         if self.crypto:
             cryptoDict = OrderedDict([("salt", self.crypto.salt), ("iv", self.crypto.iv), ("hmac", self.crypto.hmac)])
             noteDict["crypto"] = cryptoDict
-        yaml = dump_all([noteDict], default_flow_style=False, Dumper=_OrderedSafeDumper).strip()
+        yaml = dump_all([noteDict], allow_unicode=True, default_flow_style=False, Dumper=_OrderedSafeDumper).strip()
         return self.__HDR_START + yaml + self.__HDR_END + self.text
 
     def __eq__(self, that):
         if not isinstance(that, Note):
             return False
-        return self.uuid == that.uuid and self.date == that.date and self.title == that.title and\
+        return self.uuid == that.uuid and is_almost_same_date(self.date, that.date) and self.title == that.title and\
                self.tags == that.tags and self.type == that.type and self.crypto == that.crypto and\
                self.text == that.text
 
     @classmethod
-    def from_str(cls, filename, date, txt):
-        if len(filename) < 32 or not _is_uuid(filename[:32]) or not txt or not txt.startswith(cls.__HDR_START)\
-                or txt.find(cls.__HDR_END) < 0:
+    def from_text(cls, filename, date, text):
+        if len(filename) < 32 or not is_uuid(filename[:32]) or not text:
+            return None
+        if type(text) == bytes:
+            text = text.decode("utf-8")
+        if not text.startswith(cls.__HDR_START) or text.find(cls.__HDR_END) < 0:
             return None
 
-        endPos = txt.find(cls.__HDR_END)
-        noteDict = safe_load(txt[len(cls.__HDR_START):endPos])
+        endPos = text.find(cls.__HDR_END)
+        noteDict = safe_load(text[len(cls.__HDR_START):endPos])
 
         note = Note()
         note.uuid = filename[:32]
@@ -143,7 +154,7 @@ class Note(object):
         if "crypto" in noteDict:
             cryptoDict = noteDict["crypto"]
             note.crypto = NoteCrypto(cryptoDict["salt"], cryptoDict["iv"], cryptoDict["hmac"])
-        note.text = txt[endPos + len(cls.__HDR_END):]
+        note.text = text[endPos + len(cls.__HDR_END):]
         return note
 
     def encrypt(self, password):

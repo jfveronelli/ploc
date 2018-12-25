@@ -183,6 +183,49 @@ class ModuleTest(TestCase):
         self.assertEqual("EEE", res2.tags[1])
         self.assertEqual("CCC", res2.tags[2])
 
+    def testExport(self):
+        filepath = "temp-export.zip"
+        note1 = Note()
+        note1.title = "Camión"
+        note1.tags = ["AAA", "BBB"]
+        note1.text = "Hola mundo!"
+        self.provider.add(note1)
+        note2 = Note()
+        note2.crypto = NoteCrypto("8306ef737874bd0cf8e2f2b5ff7a2ec5", "9ab105d4c753280ed7e9e5f9efe839d5",
+                                  "f3276c88bce9ec0e559fe07a39d1c3aac551d635679c25dc07322b70ab6eb825")
+        note2.text = "QjyW7OaUyP7M2WR81CH8Eg=="
+        self.provider.add(note2)
+
+        self.provider.export([note1.uuid, note2.uuid], filepath)
+
+        self.provider.wipe()
+        self.provider.import_from(filepath)
+        remove(filepath)
+        self.assertEqual(note1, self.provider.get(note1.uuid))
+        self.assertEqual(note2, self.provider.get(note2.uuid))
+
+    def testImport(self):
+        filepath = "resources/import.zip"
+        imported, duplicated, corrupted = self.provider.import_from(filepath)
+
+        self.assertEqual(1, imported)
+        self.assertEqual(0, duplicated)
+        self.assertEqual(1, corrupted)
+        note = self.provider.get("01d80488a18e42e6a2767b140d45ddc9")
+        self.assertEqual("01d80488a18e42e6a2767b140d45ddc9", note.uuid)
+        self.assertEqual("2018-12-25T17:54:16", note.date.isoformat())
+        self.assertEqual("Aaaaa", note.title)
+        self.assertEqual(["!mañana"], note.tags)
+        self.assertEqual(NoteType.BASIC, note.type)
+        self.assertIsNone(note.crypto)
+        self.assertEqual("Hola mundo!", note.text)
+
+        imported, duplicated, corrupted = self.provider.import_from(filepath)
+
+        self.assertEqual(0, imported)
+        self.assertEqual(1, duplicated)
+        self.assertEqual(1, corrupted)
+
     def testState(self):
         note1 = Note()
         self.provider.remove(note1.uuid)
