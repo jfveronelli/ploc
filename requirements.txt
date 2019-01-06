@@ -6,12 +6,18 @@ argon2pure >= 1.3
   #lib/argon2pure.py
   #lib/six.py
 
+mistune >= 0.8.4
+  #lib/mistune.py
+
 peewee >= 3.8.0
   #lib/peewee.py
   #lib/playhouse/*
 
 pyaes >= 1.6.1
   #lib/pyaes/*
+
+pygments >= 2.3.1
+  #lib/pygments/*
 
 pyyaml >= 3.13
   #lib/yaml/*
